@@ -1,6 +1,4 @@
 import warnings
-warnings.filterwarnings("ignore", message=".*pin_memory.*")
-
 import os
 from flask import Flask, render_template, request, jsonify, send_file
 from werkzeug.utils import secure_filename
@@ -25,10 +23,8 @@ app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024  # 8MB
 # EasyOCR (English)
 reader = easyocr.Reader(['en'], gpu=False, verbose=False)
 
+warnings.filterwarnings("ignore", message=".*pin_memory.*")
 
-# ====================
-# Image Preprocessing
-# ====================
 def preprocess_for_ocr(image_path):
     img = cv2.imread(str(image_path))
     if img is None:
@@ -48,10 +44,7 @@ def preprocess_for_ocr(image_path):
     morph = cv2.morphologyEx(th, cv2.MORPH_CLOSE, kernel, iterations=1)
     return morph
 
-
-# ====================
-# Plate Extraction
-# ====================
+# Plate regexes
 PLATE_REGEXES = [
     re.compile(r'\b([A-Z]{2}\s?\d{1,2}\s?[A-Z]{1,3}\s?\d{1,4})\b', re.I),
     re.compile(r'\b([A-Z]{2}\d{1,2}[A-Z]{1,3}\d{1,4})\b', re.I),
@@ -76,16 +69,11 @@ def extract_plate_from_texts(texts):
 
     return None
 
-
 def run_easyocr_on_image(preprocessed_img):
     pil = Image.fromarray(preprocessed_img).convert("RGB")
     results = reader.readtext(np.array(pil))
     return [t[1].strip() for t in results if t[1].strip()]
 
-
-# ====================
-# Routes
-# ====================
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -93,7 +81,6 @@ def index():
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXT
-
 
 @app.route("/scan", methods=["POST"])
 def scan():

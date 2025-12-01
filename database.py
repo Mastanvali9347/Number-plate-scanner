@@ -18,9 +18,6 @@ def get_connection():
         return None
 
 
-# ---------------------------------------------------------
-# Initialize DB
-# ---------------------------------------------------------
 def init_db():
     con = get_connection()
     if con is None:
@@ -59,18 +56,12 @@ def init_db():
     cur.close()
     con.close()
 
-
-# ---------------------------------------------------------
 # Fuzzy Match
-# ---------------------------------------------------------
 def find_closest_plate(plate, all_plates):
     matches = get_close_matches(plate, all_plates, n=1, cutoff=0.6)
     return matches[0] if matches else None
 
-
-# ---------------------------------------------------------
 # GET VEHICLE DETAILS (FINAL WORKING)
-# ---------------------------------------------------------
 def get_vehicle_details(plate):
     """
     Works for:
