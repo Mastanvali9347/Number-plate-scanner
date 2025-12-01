@@ -1,0 +1,30 @@
+FROM python:3.13-slim
+
+# Prevent OpenCV errors
+ENV OPENCV_VIDEOIO_PRIORITY_MSMF=0
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libgl1 \
+    libglib2.0-0 \
+    tesseract-ocr \
+    libtesseract-dev \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create working directory
+WORKDIR /app
+
+# Copy project files
+COPY . /app
+
+# Install Python packages
+RUN pip install --upgrade pip
+RUN pip install -r requirements.txt
+
+# Expose port for Railway
+EXPOSE 8000
+
+# Start the app
+CMD ["python", "app.py"]
