@@ -1,12 +1,13 @@
 services:
   - type: web
     name: number-plate-scanner
-    env: python
+    env: docker
+    region: singapore
     plan: free
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "gunicorn app:app"
+    dockerfilePath: ./docker/Dockerfile
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.13
-      - key: PORT
-        value: 10000
+      - key: FLASK_ENV
+        value: production
+      - key: OCR_PATH
+        value: /usr/bin/tesseract
+    autoDeploy: true
