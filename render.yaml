@@ -4,7 +4,9 @@ services:
     env: docker
     region: singapore
     plan: free
+    rootDir: NUMBER-PLATE-SCANNER
     dockerfilePath: ./docker/Dockerfile
+
     envVars:
       - key: OCR_PATH
         value: /usr/bin/tesseract
