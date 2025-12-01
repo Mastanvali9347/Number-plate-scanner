@@ -6,20 +6,20 @@ RUN apt-get update && apt-get install -y \
     libtesseract-dev \
     && apt-get clean
 
-# Create app folder
+# Create working directory
 WORKDIR /app
 
-# Copy requirements
+# Copy dependency list
 COPY requirements.txt /app/
 
-# Install python dependencies
+# Install Python dependencies (including Gunicorn)
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project files
+# Copy all project files
 COPY . /app/
 
 # Expose port
 EXPOSE 10000
 
-# Start Flask app using Gunicorn
+# Run app using Gunicorn
 CMD ["gunicorn", "-b", "0.0.0.0:10000", "app:app"]
