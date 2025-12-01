@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import easyocr
 import re
+import pytesseract
 from PIL import Image
 
 BASE_DIR = Path(__file__).parent
@@ -19,6 +20,8 @@ ALLOWED_EXT = {"png", "jpg", "jpeg"}
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"] = str(UPLOAD_FOLDER)
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024  # 8MB
+
+pytesseract.pytesseract.tesseract_cmd = os.environ.get("OCR_PATH", "/usr/bin/tesseract")
 
 # EasyOCR (English)
 reader = easyocr.Reader(['en'], gpu=False, verbose=False)
