@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: number-plate-scanner
+    env: docker
+    rootDir: NUMBER-PLATE-SCANNER
+    dockerfilePath: ./docker/Dockerfile
+    plan: free
+    region: singapore
+
+    envVars:
+      - key: OCR_PATH
+        value: /usr/bin/tesseract
