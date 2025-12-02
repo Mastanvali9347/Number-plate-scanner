@@ -10,17 +10,20 @@ import re
 import pytesseract
 from PIL import Image
 
+
 BASE_DIR = Path(__file__).parent
 UPLOAD_FOLDER = BASE_DIR / "uploads"
 UPLOAD_FOLDER.mkdir(exist_ok=True)
 
+# Allowed extensions
 ALLOWED_EXT = {"png", "jpg", "jpeg"}
 
+# Flask app
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["UPLOAD_FOLDER"] = str(UPLOAD_FOLDER)
-app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024  # 8 MB max upload size
 
-# Render default tesseract path OR custom env path
+# Tesseract path for Render or local
 pytesseract.pytesseract.tesseract_cmd = os.environ.get("OCR_PATH", "/usr/bin/tesseract")
 
 warnings.filterwarnings("ignore", message=".*pin_memory.*")
@@ -43,8 +46,8 @@ def preprocess_for_ocr(image_path):
 
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     morph = cv2.morphologyEx(th, cv2.MORPH_CLOSE, kernel, iterations=1)
-    return morph
 
+    return morph
 
 PLATE_REGEXES = [
     re.compile(r'\b([A-Z]{2}\s?\d{1,2}\s?[A-Z]{1,3}\s?\d{1,4})\b', re.I),
@@ -55,22 +58,24 @@ PLATE_REGEXES = [
 
 
 def normalize_plate(text):
-    return re.sub(r'[^A-Z0-9]', '', text.upper())
+    return re.sub(r"[^A-Z0-9]", "", text.upper())
 
 
 def extract_plate(text):
     text = text.upper()
-    for rx in PLATE_REGEXES:
-        m = rx.search(text)
-        if m:
-            return normalize_plate(m.group(1))
+    for pattern in PLATE_REGEXES:
+        match = pattern.search(text)
+        if match:
+            return normalize_plate(match.group(1))
     return None
 
 
+# ---------------------------------------------------
+# Tesseract OCR
+# ---------------------------------------------------
 def run_tesseract(preprocessed_img):
     pil = Image.fromarray(preprocessed_img)
     return pytesseract.image_to_string(pil)
-
 
 @app.route("/")
 def index():
@@ -99,27 +104,33 @@ def scan():
     file.save(str(save_path))
 
     try:
-        pre_img = preprocess_for_ocr(save_path)
-        raw_text = run_tesseract(pre_img)
+        # Preprocess
+        processed_img = preprocess_for_ocr(save_path)
+
+        # OCR
+        raw_text = run_tesseract(processed_img)
+
+        # Extract plate number
         plate = extract_plate(raw_text)
 
         if not plate:
             return jsonify({
                 "plate_number": None,
                 "ocr_text": raw_text,
-                "message": "No plate-like text found"
+                "message": "No valid plate detected"
             }), 200
 
-        details = get_vehicle_details(plate)
+        # Lookup MySQL details
+        vehicle_details = get_vehicle_details(plate)
 
         return jsonify({
             "plate_number": plate,
-            "vehicle_details": details,
+            "vehicle_details": vehicle_details,
             "ocr_text": raw_text
         }), 200
 
     except Exception as e:
-        print("ERROR IN /scan:", e)
+        print("ERROR:", e)
         return jsonify({"error": str(e)}), 500
 
 
@@ -128,8 +139,7 @@ def uploaded_file(name):
     filepath = UPLOAD_FOLDER / name
     if filepath.exists():
         return send_file(str(filepath))
-    return ("File not found", 404)
-
+    return "File not found", 404
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)
+    app.run(host="127.0.0.1", port=8000, debug=False)
