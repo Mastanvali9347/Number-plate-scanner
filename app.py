@@ -10,23 +10,22 @@ import re
 import pytesseract
 from PIL import Image
 
-# Base directory
 BASE_DIR = Path(__file__).parent
 UPLOAD_FOLDER = BASE_DIR / "uploads"
 UPLOAD_FOLDER.mkdir(exist_ok=True)
 
-# Allowed file extensions
 ALLOWED_EXT = {"png", "jpg", "jpeg"}
 
-# Flask app setup
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["UPLOAD_FOLDER"] = str(UPLOAD_FOLDER)
-app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024  # 8MB upload limit
+app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 
-# Tesseract OCR path for Render
+# Render default tesseract path OR custom env path
 pytesseract.pytesseract.tesseract_cmd = os.environ.get("OCR_PATH", "/usr/bin/tesseract")
 
 warnings.filterwarnings("ignore", message=".*pin_memory.*")
+
+
 def preprocess_for_ocr(image_path):
     img = cv2.imread(str(image_path))
     if img is None:
@@ -46,12 +45,14 @@ def preprocess_for_ocr(image_path):
     morph = cv2.morphologyEx(th, cv2.MORPH_CLOSE, kernel, iterations=1)
     return morph
 
+
 PLATE_REGEXES = [
     re.compile(r'\b([A-Z]{2}\s?\d{1,2}\s?[A-Z]{1,3}\s?\d{1,4})\b', re.I),
     re.compile(r'\b([A-Z]{2}\d{1,2}[A-Z]{1,3}\d{1,4})\b', re.I),
     re.compile(r'\b([A-Z]{2}\d{2}\d{4})\b', re.I),
     re.compile(r'\b([A-Z0-9]{6,10})\b', re.I),
 ]
+
 
 def normalize_plate(text):
     return re.sub(r'[^A-Z0-9]', '', text.upper())
@@ -65,9 +66,11 @@ def extract_plate(text):
             return normalize_plate(m.group(1))
     return None
 
+
 def run_tesseract(preprocessed_img):
     pil = Image.fromarray(preprocessed_img)
     return pytesseract.image_to_string(pil)
+
 
 @app.route("/")
 def index():
@@ -91,19 +94,13 @@ def scan():
     if not allowed_file(file.filename):
         return jsonify({"error": "Invalid file type"}), 400
 
-    # Save file
     filename = secure_filename(file.filename)
     save_path = UPLOAD_FOLDER / filename
     file.save(str(save_path))
 
     try:
-        # Preprocess
         pre_img = preprocess_for_ocr(save_path)
-
-        # OCR
         raw_text = run_tesseract(pre_img)
-
-        # Extract number
         plate = extract_plate(raw_text)
 
         if not plate:
@@ -113,7 +110,6 @@ def scan():
                 "message": "No plate-like text found"
             }), 200
 
-        # MySQL lookup
         details = get_vehicle_details(plate)
 
         return jsonify({
@@ -134,5 +130,6 @@ def uploaded_file(name):
         return send_file(str(filepath))
     return ("File not found", 404)
 
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    app.run(host="0.0.0.0", port=8000)

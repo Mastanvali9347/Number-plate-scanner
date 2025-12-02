@@ -1,8 +1,6 @@
 // Make sure DOM is ready
 document.addEventListener("DOMContentLoaded", () => {
-  // -------------------------------
-  // DOM Elements
-  // -------------------------------
+
   const dropArea = document.getElementById("dropArea");
   const fileInput = document.getElementById("fileInput");
   const selectBtn = document.getElementById("selectBtn");

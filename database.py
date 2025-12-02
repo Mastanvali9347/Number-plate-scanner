@@ -3,7 +3,6 @@ from mysql.connector import Error
 from difflib import get_close_matches
 import re
 
-
 def get_connection():
     try:
         return mysql.connector.connect(
