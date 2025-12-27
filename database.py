@@ -1,6 +1,6 @@
 import mysql.connector
 from mysql.connector import Error
-from difflib import get_close_matches
+import requests
 import re
 
 def get_connection():
@@ -16,14 +16,12 @@ def get_connection():
         print("MySQL Error:", e)
         return None
 
-
 def init_db():
     con = get_connection()
     if con is None:
         return
 
     cur = con.cursor()
-
     cur.execute("""
         CREATE TABLE IF NOT EXISTS vehicles (
             reg_number VARCHAR(20) PRIMARY KEY,
@@ -35,96 +33,96 @@ def init_db():
             color VARCHAR(50)
         )
     """)
-
-    sample_data = [
-        ("RJ14DT3249", "Amit Patel", "Maruti Swift Dzire", "Diesel", "10 Aug 2019", "Motor Car", "White"),
-        ("KA41ER4547", "Rahul Mehta", "Royal Enfield Classic 350", "Petrol", "15 Feb 2021", "Two Wheeler", "Black"),
-        ("DL82AF5032", "Sunita Sharma", "Hyundai Creta", "Petrol", "22 May 2020", "Motor Car", "Silver"),
-        ("MH12AB1234", "Vikram Singh", "Honda City", "Petrol", "30 Mar 2018", "Motor Car", "Blue"),
-        ("TN09CD5678", "Priya Reddy", "Bajaj Pulsar 150", "Petrol", "12 Dec 2019", "Two Wheeler", "Red")
-    ]
-
-    for record in sample_data:
-        cur.execute("""
-            INSERT IGNORE INTO vehicles
-            (reg_number, owner, model, fuel, reg_date, vehicle_class, color)
-            VALUES (%s,%s,%s,%s,%s,%s,%s)
-        """, record)
-
     con.commit()
     cur.close()
     con.close()
 
-# Fuzzy Match
-def find_closest_plate(plate, all_plates):
-    matches = get_close_matches(plate, all_plates, n=1, cutoff=0.6)
-    return matches[0] if matches else None
+RTO_API_KEY = "861037d31amsh7470a636ab42985p13688djsnc6489f80bd5a"
+RTO_API_HOST = "vehicle-rc-information.p.rapidapi.com"
 
-# GET VEHICLE DETAILS (FINAL WORKING)
-def get_vehicle_details(plate):
-    """
-    Works for:
-    - Exact match
-    - OCR mistakes
-    - Missing characters
-    - Extra spaces, dashes
-    """
+def fetch_from_rto_api(reg_number):
+    url = "https://rapidapi.com/fatehbrar92/api/vehicle-rc-information"
+    payload = {"vehicleNumber": reg_number}
+    headers = {
+        "x-rapidapi-key": RTO_API_KEY,
+        "x-rapidapi-host": RTO_API_HOST,
+        "Content-Type": "application/json",
+    }
 
-    # 1) Normalize plate
-    normalized = re.sub(r"[^A-Z0-9]", "", plate.upper())
-    print("NORMALIZED:", normalized)
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        if response.status_code != 200:
+            return None
 
+        data = response.json()
+        if not data.get("result"):
+            return None
+
+        r = data["result"]
+        return {
+            "Registration Number": reg_number,
+            "Owner Name": r.get("owner_name"),
+            "Vehicle Model": r.get("model"),
+            "Fuel Type": r.get("fuel_type"),
+            "Registration Date": r.get("registration_date"),
+            "Vehicle Class": r.get("vehicle_class"),
+            "Color": r.get("color")
+        }
+    except:
+        return None
+
+def save_vehicle_to_db(vehicle):
     con = get_connection()
     if con is None:
-        return None
+        return
 
     cur = con.cursor()
-
-    # 2) Get all plates from DB
-    cur.execute("SELECT reg_number FROM vehicles")
-    rows = cur.fetchall()
-
-    all_plates = [r[0].replace(" ", "").upper() for r in rows]
-
-    # 3) Exact match
-    if normalized in all_plates:
-        matched = normalized
-    else:
-        # 4) Fuzzy match
-        matched = find_closest_plate(normalized, all_plates)
-
-    print("MATCHED PLATE:", matched)
-
-    if not matched:
-        print("No match found.")
-        cur.close()
-        con.close()
-        return None
-
-    # 5) Fetch record
     cur.execute("""
-        SELECT reg_number, owner, model, fuel, reg_date, vehicle_class, color
-        FROM vehicles
-        WHERE UPPER(REPLACE(reg_number, ' ', '')) = %s
-    """, (matched,))
-
-    row = cur.fetchone()
+        INSERT IGNORE INTO vehicles
+        (reg_number, owner, model, fuel, reg_date, vehicle_class, color)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)
+    """, (
+        vehicle["Registration Number"],
+        vehicle["Owner Name"],
+        vehicle["Vehicle Model"],
+        vehicle["Fuel Type"],
+        vehicle["Registration Date"],
+        vehicle["Vehicle Class"],
+        vehicle["Color"]
+    ))
+    con.commit()
     cur.close()
     con.close()
 
-    if not row:
+def get_vehicle_details(plate):
+    normalized = re.sub(r"[^A-Z0-9]", "", plate.upper())
+
+    con = get_connection()
+    if con:
+        cur = con.cursor(dictionary=True)
+        cur.execute("""
+            SELECT
+                reg_number AS `Registration Number`,
+                owner AS `Owner Name`,
+                model AS `Vehicle Model`,
+                fuel AS `Fuel Type`,
+                reg_date AS `Registration Date`,
+                vehicle_class AS `Vehicle Class`,
+                color AS `Color`
+            FROM vehicles
+            WHERE UPPER(REPLACE(reg_number,' ',''))=%s
+        """, (normalized,))
+        row = cur.fetchone()
+        cur.close()
+        con.close()
+        if row:
+            return row
+
+    vehicle = fetch_from_rto_api(normalized)
+    if not vehicle:
         return None
 
-    return {
-        "Registration Number": row[0],
-        "Owner Name": row[1],
-        "Vehicle Model": row[2],
-        "Fuel Type": row[3],
-        "Registration Date": row[4],
-        "Vehicle Class": row[5],
-        "Color": row[6]
-    }
+    save_vehicle_to_db(vehicle)
+    return vehicle
 
-
-# Run database initializer
 init_db()

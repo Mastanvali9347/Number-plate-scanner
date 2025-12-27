@@ -1,18 +1,13 @@
 import warnings
-import os
 from flask import Flask, render_template, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 from database import get_vehicle_details
 from pathlib import Path
 import cv2
-import numpy as np
 import re
-from PIL import Image
 import easyocr
 
-# --------------------------------------------
-# Base directory
-# --------------------------------------------
+
 BASE_DIR = Path(__file__).parent
 UPLOAD_FOLDER = BASE_DIR / "uploads"
 UPLOAD_FOLDER.mkdir(exist_ok=True)
@@ -25,70 +20,98 @@ app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024  # 8MB
 
 warnings.filterwarnings("ignore")
 
-# ------------------------------------------------------------
-# USE EASY OCR (no Tesseract required)
-# ------------------------------------------------------------
+
+
 reader = easyocr.Reader(['en'], gpu=False)
 
-
-# --------------------------------------------------------
-# Preprocessing
-# --------------------------------------------------------
-def preprocess_for_ocr(path):
+def preprocess_image(path):
     img = cv2.imread(str(path))
     if img is None:
         return None
 
-    img = cv2.resize(img, None, fx=1.4, fy=1.4)
+    img = cv2.resize(img, None, fx=1.5, fy=1.5)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    return gray
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    thresh = cv2.adaptiveThreshold(
+        blur, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY, 11, 2
+    )
+    return thresh
 
 
-# --------------------------------------------------------
-# Regex patterns
-# --------------------------------------------------------
-PLATE_REGEXES = [
-    re.compile(r"[A-Z]{2}\s?[0-9]{2}\s?[A-Z]{1,3}\s?[0-9]{3,4}", re.I),
-    re.compile(r"[A-Z]{2}[0-9]{2}[A-Z]{1,3}[0-9]{3,4}", re.I),
-    re.compile(r"[A-Z0-9]{6,10}", re.I),
-]
+def easy_ocr_extract(image_path):
+    try:
+        results = reader.readtext(str(image_path), detail=1)
+
+        if not results:
+            return "", []
+
+        text = " ".join([r[1] for r in results])
+
+        ocr_raw = []
+        for r in results:
+            ocr_raw.append({
+                "text": r[1],
+                "confidence": float(r[2]),
+                "bbox": [[int(p[0]), int(p[1])] for p in r[0]]
+            })
+
+        return text, ocr_raw
+
+    except Exception as e:
+        print("OCR ERROR:", e)
+        return "", []
+
 
 def extract_plate(text):
-    if not text:
+    if not text or not isinstance(text, str):
         return None
 
     text = text.upper()
-    for pattern in PLATE_REGEXES:
-        m = pattern.search(text)
-        if m:
-            return re.sub(r"[^A-Z0-9]", "", m.group(0))
 
-    return None
+    # Remove junk OCR words
+    for junk in ["IND", "INDIA", "WND", "RRA", "ND", "FR", "IN"]:
+        text = text.replace(junk, "")
 
+    # Keep only letters & digits
+    cleaned = re.sub(r"[^A-Z0-9]", "", text)
 
-# --------------------------------------------------------
-# EASY OCR TEXT EXTRACTION
-# --------------------------------------------------------
-def easy_ocr_extract(image_path):
-    try:
-        results = reader.readtext(str(image_path))
-        text = " ".join([res[1] for res in results])
-        return text
-    except:
-        return ""
+    # OCR character corrections
+    cleaned = (
+        cleaned
+        .replace("O", "0")
+        .replace("I", "1")
+        .replace("Z", "2")
+        .replace("S", "5")
+        .replace("L", "T")
+    )
 
+    # 🔑 Collapse duplicated letters (BNB → NB)
+    cleaned = re.sub(r"([A-Z])\1+", r"\1", cleaned)
 
-# --------------------------------------------------------
-# Routes
-# --------------------------------------------------------
-@app.route("/")
-def index():
-    return render_template("index.html")
+    # Strict Indian number plate structure
+    match = re.search(
+        r"([A-Z]{2})([0-9]{1,2})([A-Z]{1,3})([0-9]{4})",
+        cleaned
+    )
+
+    if not match:
+        return None
+
+    state, district, series, number = match.groups()
+
+    return f"{state}{district}{series}{number}"
+
 
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXT
 
+
+@app.route("/")
+def index():
+    return render_template("index.html")
 
 @app.route("/scan", methods=["POST"])
 def scan():
@@ -97,38 +120,75 @@ def scan():
 
     file = request.files["image"]
     if not file.filename:
-        return jsonify({"error": "No file name"}), 400
+        return jsonify({"error": "No file selected"}), 400
 
     if not allowed_file(file.filename):
-       return jsonify({"error": "Invalid file type"}), 400
+        return jsonify({"error": "Invalid file type"}), 400
 
     filename = secure_filename(file.filename)
     save_path = UPLOAD_FOLDER / filename
     file.save(str(save_path))
 
-    # Preprocess only for clarity (EasyOCR works on raw too)
-    processed = preprocess_for_ocr(save_path)
+    print("📸 Image saved:", save_path)
 
-    # EASY OCR extraction
-    text = easy_ocr_extract(save_path)
+    # Preprocess image
+    processed = preprocess_image(save_path)
+    if processed is not None:
+        cv2.imwrite(str(save_path), processed)
 
-    # Extract number plate
-    plate = extract_plate(text)
+    # OCR
+    ocr_text, ocr_raw = easy_ocr_extract(save_path)
+    print("OCR TEXT:", ocr_text)
+
+    plate = extract_plate(ocr_text)
+    print("FINAL PLATE:", plate)
 
     if not plate:
         return jsonify({
             "plate_number": None,
-            "ocr_text": text,
+            "ocr_text": ocr_text,
+            "ocr_raw": ocr_raw,
             "message": "No valid number plate detected"
         }), 200
 
-    # Get vehicle details from database
     details = get_vehicle_details(plate)
 
     return jsonify({
         "plate_number": plate,
         "vehicle_details": details,
-        "ocr_text": text
+        "ocr_text": ocr_text,
+        "ocr_raw": ocr_raw
+    }), 200
+
+
+@app.route("/scan-plate", methods=["POST"])
+def scan_plate_postman():
+    data = request.get_json()
+
+    if not data or "plate" not in data:
+        return jsonify({"error": "Plate number required"}), 400
+
+    corrected_plate = extract_plate(data["plate"])
+
+    if not corrected_plate:
+        return jsonify({
+            "plate_number": None,
+            "vehicle_details": None,
+            "message": "Invalid plate format"
+        }), 400
+
+    details = get_vehicle_details(corrected_plate)
+
+    if not details:
+        return jsonify({
+            "plate_number": corrected_plate,
+            "vehicle_details": None,
+            "message": "Vehicle not found"
+        }), 404
+
+    return jsonify({
+        "plate_number": corrected_plate,
+        "vehicle_details": details
     }), 200
 
 
@@ -141,4 +201,4 @@ def uploaded_file(name):
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8000, debug=False)
+    app.run(host="127.0.0.1", port=8000, debug=True)
