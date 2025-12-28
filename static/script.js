@@ -1,4 +1,7 @@
-// ===================== ELEMENTS =====================
+// ================= BASE URL =================
+const API = "http://127.0.0.1:8000";
+
+// ================= ELEMENTS =================
 const loginOverlay = document.getElementById("loginOverlay");
 const loginBtn = document.getElementById("loginBtn");
 const logoutBtn = document.getElementById("logoutBtn");
@@ -11,7 +14,7 @@ const body = document.body;
 const pages = {
   home: document.getElementById("homePage"),
   history: document.getElementById("historyPage"),
-  profile: document.getElementById("profilePage"),
+  profile: document.getElementById("profilePage")
 };
 
 const navLinks = document.querySelectorAll(".nav-link");
@@ -26,6 +29,8 @@ const scanBtn = document.getElementById("scanBtn");
 
 const processing = document.getElementById("processing");
 const details = document.getElementById("details");
+const scanAnother = document.getElementById("scanAnother");
+const downloadBtn = document.getElementById("downloadBtn");
 
 const historyList = document.getElementById("historyList");
 const profileUsername = document.getElementById("profileUsername");
@@ -38,59 +43,68 @@ const fields = {
   fuel: document.getElementById("fuel"),
   reg_date: document.getElementById("reg_date"),
   vehicle_class: document.getElementById("vehicle_class"),
-  color: document.getElementById("color"),
+  color: document.getElementById("color")
 };
 
-// ===================== STATE =====================
-let isLoggedIn = false;
-let currentUser = "";
-let history = [];
+// ================= STATE =================
+let lastVehicleData = null;
 
-// ===================== INIT =====================
+// ================= INIT =================
 loginOverlay.style.display = "grid";
 
-// ===================== LOGIN =====================
-loginBtn.addEventListener("click", () => {
+// ================= LOGIN (REAL API) =================
+loginBtn.addEventListener("click", async () => {
   const username = usernameInput.value.trim();
   const password = passwordInput.value.trim();
 
   if (!username || !password) {
-    alert("⚠ Please enter username and password");
+    alert("⚠ Enter username and password");
     return;
   }
 
-  isLoggedIn = true;
-  currentUser = username;
-  profileUsername.textContent = username;
+  try {
+    const res = await fetch(`${API}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ username, password })
+    });
 
-  loginOverlay.style.display = "none";
-  alert(`✅ Welcome, ${username}`);
-});
+    const data = await res.json();
 
-// ===================== LOGOUT =====================
-logoutBtn.addEventListener("click", () => {
-  isLoggedIn = false;
-  currentUser = "";
-  usernameInput.value = "";
-  passwordInput.value = "";
-
-  loginOverlay.style.display = "grid";
-  showPage("home");
-});
-
-// ===================== NAVIGATION =====================
-navLinks.forEach(link => {
-  link.addEventListener("click", e => {
-    e.preventDefault();
-    if (!isLoggedIn) {
-      alert("🔐 Please login first");
+    if (!res.ok) {
+      alert(data.error || "Login failed");
       return;
     }
 
+    profileUsername.textContent = data.username;
+    loginOverlay.style.display = "none";
+    showPage("home");
+
+  } catch (err) {
+    alert("❌ Server error");
+  }
+});
+
+// ================= LOGOUT =================
+logoutBtn.addEventListener("click", () => {
+  location.reload(); // clears session visually
+});
+
+// ================= THEME =================
+themeToggle.onclick = () => {
+  body.classList.toggle("dark");
+  themeToggle.textContent = body.classList.contains("dark") ? "☀️" : "🌙";
+};
+
+// ================= NAVIGATION =================
+navLinks.forEach(link => {
+  link.addEventListener("click", e => {
+    e.preventDefault();
     navLinks.forEach(l => l.classList.remove("active"));
     link.classList.add("active");
-
     showPage(link.dataset.page);
+    if (link.dataset.page === "profile") loadProfile();
   });
 });
 
@@ -99,81 +113,113 @@ function showPage(page) {
   pages[page].classList.remove("hidden");
 }
 
-// ===================== THEME TOGGLE =====================
-themeToggle.addEventListener("click", () => {
-  body.classList.toggle("dark");
-  themeToggle.textContent = body.classList.contains("dark") ? "☀" : "🌙";
-});
+// ================= IMAGE UPLOAD =================
+selectBtn.onclick = () => fileInput.click();
+uploadBtn.onclick = () => fileInput.click();
 
-// ===================== IMAGE UPLOAD =====================
-selectBtn.addEventListener("click", () => fileInput.click());
-uploadBtn.addEventListener("click", () => fileInput.click());
-
-fileInput.addEventListener("change", () => {
+fileInput.onchange = () => {
   const file = fileInput.files[0];
   if (!file) return;
-
   previewImg.src = URL.createObjectURL(file);
   preview.classList.remove("hidden");
-  details.classList.add("hidden");
-});
+};
 
-// ===================== REMOVE IMAGE =====================
-removeBtn.addEventListener("click", () => {
-  preview.classList.add("hidden");
-  previewImg.src = "";
+removeBtn.onclick = () => {
   fileInput.value = "";
-});
+  preview.classList.add("hidden");
+  details.classList.add("hidden");
+};
 
-// ===================== SCAN (DEMO LOGIC) =====================
-scanBtn.addEventListener("click", () => {
+// ================= SCAN (REAL OCR API) =================
+scanBtn.addEventListener("click", async () => {
+  if (!fileInput.files.length) {
+    alert("Select an image first");
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("image", fileInput.files[0]);
+
   processing.classList.remove("hidden");
   details.classList.add("hidden");
 
-  setTimeout(() => {
+  try {
+    const res = await fetch(`${API}/scan`, {
+      method: "POST",
+      credentials: "include",
+      body: formData
+    });
+
+    const data = await res.json();
     processing.classList.add("hidden");
 
-    // Demo vehicle data
-    const data = {
-      reg_number: "AP09AB1234",
-      owner: currentUser,
-      model: "Hyundai Creta",
-      fuel: "Petrol",
-      reg_date: "12-06-2021",
-      vehicle_class: "LMV",
-      color: "White",
-    };
+    if (!res.ok) {
+      alert(data.error || "Scan failed");
+      return;
+    }
 
-    Object.keys(fields).forEach(key => {
-      fields[key].textContent = data[key];
+    if (!data.vehicle_details) {
+      alert(data.message || "No plate detected");
+      return;
+    }
+
+    lastVehicleData = data.vehicle_details;
+
+    Object.keys(fields).forEach(k => {
+      fields[k].textContent = data.vehicle_details[k] || "-";
     });
 
     details.classList.remove("hidden");
-    saveToHistory(data);
-  }, 2500);
+    addHistory(data.plate_number);
+
+  } catch (err) {
+    processing.classList.add("hidden");
+    alert("❌ Server error");
+  }
 });
 
-// ===================== HISTORY =====================
-function saveToHistory(data) {
-  history.push({
-    ...data,
-    time: new Date().toLocaleString(),
-  });
-
-  renderHistory();
+// ================= HISTORY =================
+function addHistory(plate) {
+  const div = document.createElement("div");
+  div.className = "card";
+  div.innerHTML = `<b>${plate}</b><br><small>${new Date().toLocaleString()}</small>`;
+  historyList.prepend(div);
 }
 
-function renderHistory() {
-  historyList.innerHTML = "";
-
-  history.forEach(item => {
-    const div = document.createElement("div");
-    div.className = "card";
-    div.innerHTML = `
-      <b>${item.reg_number}</b>
-      <p class="muted">${item.model} • ${item.time}</p>
-    `;
-    historyList.appendChild(div);
-  });
+// ================= PROFILE =================
+async function loadProfile() {
+  try {
+    const res = await fetch(`${API}/profile`, {
+      credentials: "include"
+    });
+    const data = await res.json();
+    profileUsername.textContent = data.username;
+  } catch {
+    alert("Failed to load profile");
+  }
 }
-renderHistory();
+
+// ================= DOWNLOAD PDF =================
+downloadBtn.addEventListener("click", async () => {
+  if (!lastVehicleData) return;
+
+  const res = await fetch(`${API}/download-report`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ vehicle_details: lastVehicleData })
+  });
+
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "vehicle_report.pdf";
+  a.click();
+});
+
+// ================= SCAN AGAIN =================
+scanAnother.onclick = () => {
+  details.classList.add("hidden");
+  preview.classList.add("hidden");
+  fileInput.value = "";
+};

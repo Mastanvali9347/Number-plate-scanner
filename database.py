@@ -25,7 +25,16 @@ def init_db():
 
     cur = con.cursor()
 
-    # Vehicles table
+    # USERS TABLE
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            username VARCHAR(50) UNIQUE NOT NULL,
+            password VARCHAR(255) NOT NULL
+        )
+    """)
+
+    # VEHICLES CACHE TABLE
     cur.execute("""
         CREATE TABLE IF NOT EXISTS vehicles (
             reg_number VARCHAR(20) PRIMARY KEY,
@@ -38,22 +47,15 @@ def init_db():
         )
     """)
 
-    # Users table
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            username VARCHAR(50) UNIQUE,
-            password VARCHAR(255)
-        )
-    """)
-
-    # Scan history table (UPDATED)
+    # SCAN HISTORY TABLE
     cur.execute("""
         CREATE TABLE IF NOT EXISTS scan_history (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            username VARCHAR(50),
-            plate VARCHAR(20),
-            scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            username VARCHAR(50) NOT NULL,
+            plate VARCHAR(20) NOT NULL,
+            scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX (username),
+            INDEX (plate)
         )
     """)
 
@@ -64,14 +66,13 @@ def init_db():
 
 # ================= RTO API =================
 RTO_API_KEY = "861037d31amsh7470a636ab42985p13688djsnc6489f80bd5a"
-RTO_API_HOST = "rto-vehicle-details.p.rapidapi.com"
+RTO_API_HOST = "vehicle-rc-information.p.rapidapi.com"
 
 
 def fetch_from_rto_api(reg_number):
     url = "https://vehicle-rc-information.p.rapidapi.com/vehicle-rc-details"
 
     payload = {"vehicleNumber": reg_number}
-
     headers = {
         "x-rapidapi-key": RTO_API_KEY,
         "x-rapidapi-host": RTO_API_HOST,
@@ -79,25 +80,30 @@ def fetch_from_rto_api(reg_number):
     }
 
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        response = requests.post(
+            url,
+            json=payload,
+            headers=headers,
+            timeout=10
+        )
 
         if response.status_code != 200:
             return None
 
         data = response.json()
-        if not data.get("result"):
-            return None
+        result = data.get("result")
 
-        r = data["result"]
+        if not result:
+            return None
 
         return {
             "Registration Number": reg_number,
-            "Owner Name": r.get("owner_name"),
-            "Vehicle Model": r.get("model"),
-            "Fuel Type": r.get("fuel_type"),
-            "Registration Date": r.get("registration_date"),
-            "Vehicle Class": r.get("vehicle_class"),
-            "Color": r.get("color")
+            "Owner Name": result.get("owner_name"),
+            "Vehicle Model": result.get("model"),
+            "Fuel Type": result.get("fuel_type"),
+            "Registration Date": result.get("registration_date"),
+            "Vehicle Class": result.get("vehicle_class"),
+            "Color": result.get("color")
         }
 
     except Exception as e:
@@ -105,7 +111,7 @@ def fetch_from_rto_api(reg_number):
         return None
 
 
-# ================= VEHICLE CACHE =================
+# ================= CACHE =================
 def save_vehicle_to_db(vehicle):
     con = get_connection()
     if not con:
@@ -115,7 +121,7 @@ def save_vehicle_to_db(vehicle):
     cur.execute("""
         INSERT IGNORE INTO vehicles
         (reg_number, owner, model, fuel, reg_date, vehicle_class, color)
-        VALUES (%s,%s,%s,%s,%s,%s,%s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
     """, (
         vehicle["Registration Number"],
         vehicle["Owner Name"],
@@ -167,11 +173,11 @@ def get_scan_history(username):
     return rows
 
 
-# ================= MAIN FUNCTION =================
+# ================= MAIN VEHICLE LOOKUP =================
 def get_vehicle_details(plate, username=None):
     normalized = re.sub(r"[^A-Z0-9]", "", plate.upper())
 
-    # 1️⃣ Check DB cache
+    # 1️⃣ CHECK CACHE
     con = get_connection()
     if con:
         cur = con.cursor(dictionary=True)
@@ -196,12 +202,12 @@ def get_vehicle_details(plate, username=None):
                 save_scan_history(username, normalized)
             return row
 
-    # 2️⃣ Fetch from RTO
+    # 2️⃣ FETCH FROM RTO
     vehicle = fetch_from_rto_api(normalized)
     if not vehicle:
         return None
 
-    # 3️⃣ Save cache + history
+    # 3️⃣ SAVE CACHE + HISTORY
     save_vehicle_to_db(vehicle)
     if username:
         save_scan_history(username, normalized)

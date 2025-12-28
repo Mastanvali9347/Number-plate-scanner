@@ -1,7 +1,7 @@
 import warnings
 from flask import Flask, render_template, request, jsonify, send_file, session
 from werkzeug.utils import secure_filename
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 from pathlib import Path
 from io import BytesIO
 import cv2
@@ -15,6 +15,7 @@ from database import get_vehicle_details, get_connection
 
 warnings.filterwarnings("ignore")
 
+# ================= APP =================
 app = Flask(__name__)
 app.secret_key = "super_secret_key_123"
 
@@ -42,7 +43,7 @@ def easy_ocr_extract(path):
     try:
         res = reader.readtext(str(path))
         return " ".join([r[1] for r in res])
-    except:
+    except Exception:
         return ""
 
 # ================= PLATE EXTRACTION =================
@@ -51,24 +52,17 @@ def extract_plate(text):
         return None
 
     text = text.upper()
+    text = re.sub(r"[^A-Z0-9]", "", text)
 
-    junk_words = ["IND", "INDIA", "FR", "FRNA", "IN"]
-    for j in junk_words:
-        text = text.replace(j, "")
-
-    cleaned = re.sub(r"[^A-Z0-9]", " ", text)
-    tokens = cleaned.split()
-    combined = "".join(tokens)
-
-    combined = (
-        combined.replace("O", "0")
+    text = (
+        text.replace("O", "0")
         .replace("I", "1")
         .replace("Z", "2")
         .replace("S", "5")
     )
 
-    if 8 <= len(combined) <= 10:
-        return combined
+    if 8 <= len(text) <= 10:
+        return text
 
     return None
 
@@ -77,25 +71,83 @@ def extract_plate(text):
 def index():
     return render_template("index.html")
 
-# ---------- LOGIN ----------
-@app.route("/login", methods=["POST"])
-def login():
-    data = request.get_json()
+# ================= REGISTER =================
+@app.route("/register", methods=["POST"])
+def register():
+    data = request.get_json(silent=True)
+
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
+    username = data.get("username")
+    password = data.get("password")
+
+    if not username or not password:
+        return jsonify({"error": "username and password required"}), 400
+
+    hashed_password = generate_password_hash(password)
 
     con = get_connection()
     cur = con.cursor(dictionary=True)
-    cur.execute("SELECT * FROM users WHERE username=%s", (data["username"],))
-    user = cur.fetchone()
+
+    # Check if user exists
+    cur.execute("SELECT id FROM users WHERE username=%s", (username,))
+    if cur.fetchone():
+        cur.close()
+        con.close()
+        return jsonify({"error": "User already exists"}), 409
+
+    # Insert new user
+    cur.execute(
+        "INSERT INTO users (username, password) VALUES (%s, %s)",
+        (username, hashed_password)
+    )
+    con.commit()
+
     cur.close()
     con.close()
 
-    if not user or not check_password_hash(user["password"], data["password"]):
-        return jsonify({"error": "Invalid username or password"}), 401
+    return jsonify({"success": True, "username": username}), 201
+
+# ================= LOGIN =================
+@app.route("/login", methods=["POST"])
+def login():
+    data = request.get_json(silent=True)
+
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
+    username = data.get("username")
+    password = data.get("password")
+
+    if not username or not password:
+        return jsonify({"error": "username and password required"}), 400
+
+    con = get_connection()
+    cur = con.cursor(dictionary=True)
+
+    cur.execute("SELECT * FROM users WHERE username=%s", (username,))
+    user = cur.fetchone()
+
+    cur.close()
+    con.close()
+
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    if not check_password_hash(user["password"], password):
+        return jsonify({"error": "Invalid password"}), 401
 
     session["user"] = user["username"]
-    return jsonify({"success": True, "username": user["username"]})
+    session["user_id"] = user["id"]
 
-# ---------- SCAN ----------
+    return jsonify({
+        "success": True,
+        "id": user["id"],
+        "username": user["username"]
+    })
+
+# ================= SCAN =================
 @app.route("/scan", methods=["POST"])
 def scan():
     if "user" not in session:
@@ -127,7 +179,6 @@ def scan():
             "message": "No valid number plate detected"
         })
 
-    # ✅ SINGLE SOURCE OF TRUTH (history + cache handled inside)
     details = get_vehicle_details(plate, session["user"])
 
     return jsonify({
@@ -136,7 +187,7 @@ def scan():
         "ocr_text": text
     })
 
-# ---------- PROFILE ----------
+# ================= PROFILE =================
 @app.route("/profile")
 def profile():
     if "user" not in session:
@@ -170,10 +221,13 @@ def profile():
         "last_scan": last["scanned_at"] if last else "N/A"
     })
 
-# ---------- DOWNLOAD PDF ----------
+# ================= DOWNLOAD PDF =================
 @app.route("/download-report", methods=["POST"])
 def download_report():
     data = request.get_json()
+
+    if not data or "vehicle_details" not in data:
+        return jsonify({"error": "Invalid data"}), 400
 
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
@@ -200,4 +254,4 @@ def download_report():
 
 # ================= RUN =================
 if __name__ == "__main__":
-    app.run(port=8000, debug=True)
+    app.run(host="127.0.0.1", port=8000, debug=True)
