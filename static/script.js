@@ -1,254 +1,179 @@
-// Make sure DOM is ready
-document.addEventListener("DOMContentLoaded", () => {
+// ===================== ELEMENTS =====================
+const loginOverlay = document.getElementById("loginOverlay");
+const loginBtn = document.getElementById("loginBtn");
+const logoutBtn = document.getElementById("logoutBtn");
+const usernameInput = document.getElementById("username");
+const passwordInput = document.getElementById("password");
 
-  const dropArea = document.getElementById("dropArea");
-  const fileInput = document.getElementById("fileInput");
-  const selectBtn = document.getElementById("selectBtn");
-  const preview = document.getElementById("preview");
-  const previewImg = document.getElementById("previewImg");
-  const scanBtn = document.getElementById("scanBtn");
-  const processing = document.getElementById("processing");
-  const details = document.getElementById("details");
-  const fields = document.getElementById("fields");
-  const removeBtn = document.getElementById("removeBtn");
-  const progressBar = document.getElementById("progressBar");
-  const s1 = document.getElementById("s1");
-  const s2 = document.getElementById("s2");
-  const s3 = document.getElementById("s3");
-  const downloadBtn = document.getElementById("downloadBtn");
-  const scanAnother = document.getElementById("scanAnother");
+const themeToggle = document.getElementById("themeToggle");
+const body = document.body;
 
-  let selectedFile = null;
+const pages = {
+  home: document.getElementById("homePage"),
+  history: document.getElementById("historyPage"),
+  profile: document.getElementById("profilePage"),
+};
 
-  // -------------------------------
-  // Helpers
-  // -------------------------------
-  const show = (el) => el && el.classList.remove("hidden");
-  const hide = (el) => el && el.classList.add("hidden");
+const navLinks = document.querySelectorAll(".nav-link");
 
-  // Normalize plate → "RJ14DT3249"
-  const normalizePlate = (p) =>
-    p ? String(p).replace(/[^A-Z0-9]/gi, "").toUpperCase() : "";
+const fileInput = document.getElementById("fileInput");
+const selectBtn = document.getElementById("selectBtn");
+const uploadBtn = document.getElementById("uploadBtn");
+const preview = document.getElementById("preview");
+const previewImg = document.getElementById("previewImg");
+const removeBtn = document.getElementById("removeBtn");
+const scanBtn = document.getElementById("scanBtn");
 
-  // -------------------------------
-  // File Selection
-  // -------------------------------
-  selectBtn.onclick = () => fileInput.click();
+const processing = document.getElementById("processing");
+const details = document.getElementById("details");
 
-  fileInput.onchange = (e) => {
-    selectedFile = e.target.files[0];
-    if (selectedFile) {
-      showPreview(selectedFile);
-    }
-  };
+const historyList = document.getElementById("historyList");
+const profileUsername = document.getElementById("profileUsername");
 
-  dropArea.onclick = () => fileInput.click();
+// Vehicle fields
+const fields = {
+  reg_number: document.getElementById("reg_number"),
+  owner: document.getElementById("owner"),
+  model: document.getElementById("model"),
+  fuel: document.getElementById("fuel"),
+  reg_date: document.getElementById("reg_date"),
+  vehicle_class: document.getElementById("vehicle_class"),
+  color: document.getElementById("color"),
+};
 
-  dropArea.ondragover = (e) => {
+// ===================== STATE =====================
+let isLoggedIn = false;
+let currentUser = "";
+let history = [];
+
+// ===================== INIT =====================
+loginOverlay.style.display = "grid";
+
+// ===================== LOGIN =====================
+loginBtn.addEventListener("click", () => {
+  const username = usernameInput.value.trim();
+  const password = passwordInput.value.trim();
+
+  if (!username || !password) {
+    alert("⚠ Please enter username and password");
+    return;
+  }
+
+  isLoggedIn = true;
+  currentUser = username;
+  profileUsername.textContent = username;
+
+  loginOverlay.style.display = "none";
+  alert(`✅ Welcome, ${username}`);
+});
+
+// ===================== LOGOUT =====================
+logoutBtn.addEventListener("click", () => {
+  isLoggedIn = false;
+  currentUser = "";
+  usernameInput.value = "";
+  passwordInput.value = "";
+
+  loginOverlay.style.display = "grid";
+  showPage("home");
+});
+
+// ===================== NAVIGATION =====================
+navLinks.forEach(link => {
+  link.addEventListener("click", e => {
     e.preventDefault();
-    dropArea.style.borderColor = "rgba(255,255,255,0.14)";
-  };
-
-  dropArea.ondragleave = () => {
-    dropArea.style.borderColor = "rgba(255,255,255,0.06)";
-  };
-
-  dropArea.ondrop = (e) => {
-    e.preventDefault();
-    dropArea.style.borderColor = "rgba(255,255,255,0.06)";
-    selectedFile = e.dataTransfer.files[0];
-    if (selectedFile) {
-      showPreview(selectedFile);
-    }
-  };
-
-  function showPreview(file) {
-    previewImg.src = URL.createObjectURL(file);
-    show(preview);
-    hide(details);
-    hide(processing);
-  }
-
-  // -------------------------------
-  // Remove Image
-  // -------------------------------
-  removeBtn.onclick = () => {
-    selectedFile = null;
-    fileInput.value = "";
-    previewImg.src = "";
-    hide(preview);
-    hide(details);
-    hide(processing);
-    fields.innerHTML = "";
-  };
-
-  // -------------------------------
-  // Scan Button → Upload to backend
-  // -------------------------------
-  scanBtn.onclick = async () => {
-    if (!selectedFile) {
-      alert("Please select an image first!");
+    if (!isLoggedIn) {
+      alert("🔐 Please login first");
       return;
     }
 
-    hide(preview);
-    hide(details);
-    show(processing);
-    startProgressAnimation();
+    navLinks.forEach(l => l.classList.remove("active"));
+    link.classList.add("active");
 
-    const formData = new FormData();
-    formData.append("image", selectedFile);
+    showPage(link.dataset.page);
+  });
+});
 
-    try {
-      const res = await fetch("/scan", {
-        method: "POST",
-        body: formData
-      });
+function showPage(page) {
+  Object.values(pages).forEach(p => p.classList.add("hidden"));
+  pages[page].classList.remove("hidden");
+}
 
-      const data = await res.json();
-      console.log("SCAN RESPONSE:", data);
+// ===================== THEME TOGGLE =====================
+themeToggle.addEventListener("click", () => {
+  body.classList.toggle("dark");
+  themeToggle.textContent = body.classList.contains("dark") ? "☀" : "🌙";
+});
 
-      setTimeout(() => {
-        hide(processing);
-        showDetails(data);
-      }, 1800);
-    } catch (err) {
-      hide(processing);
-      alert("Server error: " + err.message);
-    }
-  };
+// ===================== IMAGE UPLOAD =====================
+selectBtn.addEventListener("click", () => fileInput.click());
+uploadBtn.addEventListener("click", () => fileInput.click());
 
-  // -------------------------------
-  // Progress Animation UI
-  // -------------------------------
-  function startProgressAnimation() {
-    progressBar.style.width = "0%";
-    s1.textContent = s2.textContent = s3.textContent = "○";
+fileInput.addEventListener("change", () => {
+  const file = fileInput.files[0];
+  if (!file) return;
 
-    setTimeout(() => {
-      s1.textContent = "✔";
-      progressBar.style.width = "30%";
-    }, 500);
+  previewImg.src = URL.createObjectURL(file);
+  preview.classList.remove("hidden");
+  details.classList.add("hidden");
+});
 
-    setTimeout(() => {
-      s2.textContent = "✔";
-      progressBar.style.width = "65%";
-    }, 1000);
+// ===================== REMOVE IMAGE =====================
+removeBtn.addEventListener("click", () => {
+  preview.classList.add("hidden");
+  previewImg.src = "";
+  fileInput.value = "";
+});
 
-    setTimeout(() => {
-      s3.textContent = "✔";
-      progressBar.style.width = "100%";
-    }, 1500);
-  }
+// ===================== SCAN (DEMO LOGIC) =====================
+scanBtn.addEventListener("click", () => {
+  processing.classList.remove("hidden");
+  details.classList.add("hidden");
 
-  // -------------------------------
-  // Show Details from Backend
-  // -------------------------------
-  function showDetails(data) {
-    fields.innerHTML = "";
+  setTimeout(() => {
+    processing.classList.add("hidden");
 
-    // 1) Backend error
-    if (data.error) {
-      fields.innerHTML = `
-        <p style="color:#ff6a6a;font-size:17px;margin-top:10px;">
-          ❌ Server error: <b>${data.error}</b>
-        </p>`;
-      show(details);
-      return;
-    }
+    // Demo vehicle data
+    const data = {
+      reg_number: "AP09AB1234",
+      owner: currentUser,
+      model: "Hyundai Creta",
+      fuel: "Petrol",
+      reg_date: "12-06-2021",
+      vehicle_class: "LMV",
+      color: "White",
+    };
 
-    const rawPlate = data.plate_number || "";
-    const normalizedPlate = normalizePlate(rawPlate);
-
-    // 2) Vehicle details found from database
-    if (data.vehicle_details) {
-      const v = data.vehicle_details;
-
-      addField("🔖", "Registration Number", v["Registration Number"] || normalizedPlate);
-      addField("👤", "Owner Name", v["Owner Name"] || "—");
-      addField("🚗", "Vehicle Model", v["Vehicle Model"] || "—");
-      addField("🛢️", "Fuel Type", v["Fuel Type"] || "—");
-      addField("📅", "Registration Date", v["Registration Date"] || "—");
-      addField("🚙", "Vehicle Class", v["Vehicle Class"] || "—");
-      addField("🎨", "Color", v["Color"] || "—");
-
-      show(details);
-      return;
-    }
-
-    // 3) Plate detected, but NOT in database
-    if (normalizedPlate) {
-      fields.innerHTML = `
-        <p style="color:#ff6a6a;font-size:17px;margin-top:10px;">
-          ❌ Plate detected: <b>${normalizedPlate}</b><br>
-          No record found in database.
-        </p>`;
-      show(details);
-      return;
-    }
-
-    // 4) No plate detected at all
-    const ocrText = Array.isArray(data.ocr_texts)
-      ? data.ocr_texts.join(", ")
-      : "None";
-
-    fields.innerHTML = `
-      <p style="color:#ff6a6a;font-size:17px;margin-top:10px;">
-        ❌ No plate detected.<br>
-        OCR Text: ${ocrText}
-      </p>`;
-    show(details);
-  }
-
-  // -------------------------------
-  function addField(icon, label, value) {
-    const el = document.createElement("div");
-    el.className = "field";
-    el.innerHTML = `
-      <div class="icon">${icon}</div>
-      <div class="meta">
-        <div class="label">${label}</div>
-        <div class="value">${value ?? "—"}</div>
-      </div>`;
-    fields.appendChild(el);
-  }
-
-  // -------------------------------
-  // Download JSON
-  // -------------------------------
-  downloadBtn.onclick = () => {
-    const items = Array.from(fields.querySelectorAll(".field")).map((f) => ({
-      label: f.querySelector(".label").textContent,
-      value: f.querySelector(".value").textContent
-    }));
-
-    if (!items.length) {
-      alert("No details to download.");
-      return;
-    }
-
-    const blob = new Blob([JSON.stringify(items, null, 2)], {
-      type: "application/json"
+    Object.keys(fields).forEach(key => {
+      fields[key].textContent = data[key];
     });
 
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "vehicle-details.json";
-    a.click();
-
-    alert("✅ Vehicle details downloaded successfully!");
-  };
-
-  // -------------------------------
-  // Scan another
-  // -------------------------------
-  scanAnother.onclick = () => {
-    hide(details);
-    if (selectedFile) {
-      show(preview);
-    } else {
-      hide(preview);
-    }
-  };
+    details.classList.remove("hidden");
+    saveToHistory(data);
+  }, 2500);
 });
+
+// ===================== HISTORY =====================
+function saveToHistory(data) {
+  history.push({
+    ...data,
+    time: new Date().toLocaleString(),
+  });
+
+  renderHistory();
+}
+
+function renderHistory() {
+  historyList.innerHTML = "";
+
+  history.forEach(item => {
+    const div = document.createElement("div");
+    div.className = "card";
+    div.innerHTML = `
+      <b>${item.reg_number}</b>
+      <p class="muted">${item.model} • ${item.time}</p>
+    `;
+    historyList.appendChild(div);
+  });
+}
+renderHistory();

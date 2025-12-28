@@ -1,23 +1,61 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Number Plate Scanner</title>
-
-  <!-- Link CSS -->
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="../static/style.css">
 </head>
 
-<body>
-  <div class="container">
+<body class="light">
+
+  <!-- ================= NAVBAR ================= -->
+  <nav class="navbar">
+    <div class="nav-left">
+      <span class="brand">🚗 PlateScanner</span>
+    </div>
+
+    <div class="nav-center">
+      <a href="#" class="nav-link active" data-page="home">Home</a>
+      <a href="#" class="nav-link" data-page="history">History</a>
+      <a href="#" class="nav-link" data-page="profile">Profile</a>
+    </div>
+
+    <div class="nav-right">
+      <button id="themeToggle" class="icon-btn">🌙</button>
+      <button id="logoutBtn" class="btn btn-ghost">Logout</button>
+    </div>
+  </nav>
+
+  <!-- ================= LOGIN ================= -->
+  <div class="login-overlay" id="loginOverlay">
+    <div class="login-card">
+      <h2>🔐 Login</h2>
+      <p class="muted">Access vehicle scanning dashboard</p>
+
+      <input type="text" id="username" placeholder="Username" />
+      <input type="password" id="password" placeholder="Password" />
+
+      <button id="loginBtn" class="btn btn-primary full">Login</button>
+    </div>
+  </div>
+
+  <!-- ================= HOME / SCAN PAGE ================= -->
+  <div class="container page" id="homePage">
+
     <header>
-      <div class="logo"><div class="mag">🔍</div></div>
+      <div class="logo">
+        <div class="mag">🔍</div>
+      </div>
       <h1>Vehicle Number Plate Scanner</h1>
-      <p class="lead">Upload an image or use your camera to scan and verify vehicle details</p>
+      <p class="lead">
+        Upload an image or use your camera to scan and verify vehicle details
+      </p>
     </header>
 
     <div class="card">
+
       <div class="controls controls-start">
         <button class="btn btn-primary" id="uploadBtn">⬆ Upload Image</button>
         <button class="btn btn-ghost" id="cameraBtn">📷 Use Camera</button>
@@ -26,7 +64,7 @@
       <div class="drop-area" id="dropArea">
         <div class="big">⤴</div>
         <h3>Upload Number Plate Image</h3>
-        <p>Drag and drop an image here, or click to select</p>
+        <p>Drag & drop an image or click to select</p>
         <button class="btn btn-primary" id="selectBtn">Select Image</button>
         <input type="file" id="fileInput" accept="image/*" class="hidden" title="Select an image file to scan">
       </div>
@@ -35,44 +73,64 @@
         <div class="preview-card">
           <div class="image-wrap">
             <img id="previewImg" src="" alt="preview">
-            <button id="removeBtn" class="remove-btn">Remove</button>
+            <button id="removeBtn" class="remove-btn">✖</button>
           </div>
-          <button id="scanBtn" class="scan-full btn-primary">🔍 Scan Number Plate</button>
+          <button id="scanBtn" class="scan-full btn-primary">
+            🔍 Scan Number Plate
+          </button>
         </div>
       </div>
 
       <div id="processing" class="processing hidden">
-        <div class="proc-ring">🔄</div>
-        <h3 class="processing-title">Processing Image</h3>
-        <div class="steps">
-          <div class="step"><div>⚡ Analyzing image quality</div><div id="s1">○</div></div>
-          <div class="step"><div>⚡ Detecting number plate</div><div id="s2">○</div></div>
-          <div class="step"><div>⚡ Extracting text using OCR</div><div id="s3">○</div></div>
-          <div class="bar bar-margin"><i id="progressBar"></i></div>
-        </div>
+        <div class="proc-ring spin">🔄</div>
+        <h3>Scanning in Progress</h3>
       </div>
 
+      <!-- VEHICLE DETAILS -->
       <div id="details" class="details hidden">
-        <div class="status">
+        <div class="status success">
           <div class="ok">✔</div>
-          <h3 class="details-title">Vehicle Details Found</h3>
-          <p class="details-subtitle">Successfully scanned and verified vehicle information</p>
+          <h3>Vehicle Details Found</h3>
         </div>
-        <div class="fields" id="fields"></div>
+
+        <div class="fields">
+          <div><b>Registration Number:</b> <span id="reg_number"></span></div>
+          <div><b>Owner:</b> <span id="owner"></span></div>
+          <div><b>Model:</b> <span id="model"></span></div>
+          <div><b>Fuel:</b> <span id="fuel"></span></div>
+          <div><b>Registration Date:</b> <span id="reg_date"></span></div>
+          <div><b>Vehicle Class:</b> <span id="vehicle_class"></span></div>
+          <div><b>Color:</b> <span id="color"></span></div>
+        </div>
+
         <div class="actions">
           <button id="scanAnother" class="btn muted">↻ Scan Another</button>
-          <button id="downloadBtn" class="btn btn-primary">Download Details</button>
+          <button id="downloadBtn" class="btn btn-primary">⬇ Download</button>
         </div>
-        <div class="verified-note">✓ Vehicle information verified from database</div>
       </div>
 
     </div>
-
-    <footer class="note">Note: Demo application using OCR + MySQL vehicle database</footer>
   </div>
 
-  <!-- Link JS -->
-  <script src="/static/script.js"></script>
+  <!-- ================= HISTORY ================= -->
+  <div class="container page hidden" id="historyPage">
+    <h2>🕘 Scan History</h2>
+    <div id="historyList">
+      <p class="muted">No scans yet</p>
+    </div>
+  </div>
 
+  <!-- ================= PROFILE ================= -->
+  <div class="container page hidden" id="profilePage">
+    <h2>👤 Profile Dashboard</h2>
+    <p><b>Username:</b> <span id="profileUsername"></span></p>
+    <p class="muted">Your scanned vehicles are saved in history.</p>
+  </div>
+
+  <footer class="note">
+    Demo application using OCR + MySQL + RTO API
+  </footer>
+
+  <script src="../static/script.js"></script>
 </body>
 </html>
