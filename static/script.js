@@ -1,24 +1,21 @@
-// ================= BASE URL =================
-const API = "http://127.0.0.1:8000";
+const API_BASE = "http://127.0.0.1:8000";
 
-// ================= ELEMENTS =================
+const body = document.body;
+const navLinks = document.querySelectorAll(".nav-link");
+
+const homePage = document.getElementById("homePage");
+const historyPage = document.getElementById("historyPage");
+const profilePage = document.getElementById("profilePage");
+
+const themeToggle = document.getElementById("themeToggle");
+
 const loginOverlay = document.getElementById("loginOverlay");
 const loginBtn = document.getElementById("loginBtn");
 const logoutBtn = document.getElementById("logoutBtn");
 const usernameInput = document.getElementById("username");
 const passwordInput = document.getElementById("password");
 
-const themeToggle = document.getElementById("themeToggle");
-const body = document.body;
-
-const pages = {
-  home: document.getElementById("homePage"),
-  history: document.getElementById("historyPage"),
-  profile: document.getElementById("profilePage")
-};
-
-const navLinks = document.querySelectorAll(".nav-link");
-
+const dropArea = document.getElementById("dropArea");
 const fileInput = document.getElementById("fileInput");
 const selectBtn = document.getElementById("selectBtn");
 const uploadBtn = document.getElementById("uploadBtn");
@@ -29,197 +26,218 @@ const scanBtn = document.getElementById("scanBtn");
 
 const processing = document.getElementById("processing");
 const details = document.getElementById("details");
+
+const regNumber = document.getElementById("reg_number");
+const owner = document.getElementById("owner");
+const model = document.getElementById("model");
+const fuel = document.getElementById("fuel");
+const regDate = document.getElementById("reg_date");
+const vehicleClass = document.getElementById("vehicle_class");
+const color = document.getElementById("color");
+
 const scanAnother = document.getElementById("scanAnother");
 const downloadBtn = document.getElementById("downloadBtn");
-
 const historyList = document.getElementById("historyList");
 const profileUsername = document.getElementById("profileUsername");
 
-// Vehicle fields
-const fields = {
-  reg_number: document.getElementById("reg_number"),
-  owner: document.getElementById("owner"),
-  model: document.getElementById("model"),
-  fuel: document.getElementById("fuel"),
-  reg_date: document.getElementById("reg_date"),
-  vehicle_class: document.getElementById("vehicle_class"),
-  color: document.getElementById("color")
+const getAuthHeaders = () => ({
+  Authorization: "Bearer " + localStorage.getItem("token")
+});
+
+themeToggle.onclick = () => {
+  body.classList.toggle("dark");
+  body.classList.toggle("light");
+  themeToggle.textContent = body.classList.contains("dark") ? "☀" : "🌙";
 };
 
-// ================= STATE =================
-let lastVehicleData = null;
-
-// ================= INIT =================
-loginOverlay.style.display = "grid";
-
-// ================= LOGIN (REAL API) =================
-loginBtn.addEventListener("click", async () => {
+loginBtn.onclick = async () => {
   const username = usernameInput.value.trim();
   const password = passwordInput.value.trim();
-
-  if (!username || !password) {
-    alert("⚠ Enter username and password");
-    return;
-  }
+  if (!username || !password) return alert("Enter username and password");
 
   try {
-    const res = await fetch(`${API}/login`, {
+    const res = await fetch(`${API_BASE}/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "include",
       body: JSON.stringify({ username, password })
     });
 
     const data = await res.json();
+    if (!res.ok) return alert(data.error || "Login failed");
 
-    if (!res.ok) {
-      alert(data.error || "Login failed");
-      return;
-    }
-
+    localStorage.setItem("token", data.token);
     profileUsername.textContent = data.username;
-    loginOverlay.style.display = "none";
-    showPage("home");
-
-  } catch (err) {
-    alert("❌ Server error");
+    loginOverlay.classList.add("hidden");
+  } catch {
+    alert("Server error");
   }
-});
-
-// ================= LOGOUT =================
-logoutBtn.addEventListener("click", () => {
-  location.reload(); // clears session visually
-});
-
-// ================= THEME =================
-themeToggle.onclick = () => {
-  body.classList.toggle("dark");
-  themeToggle.textContent = body.classList.contains("dark") ? "☀️" : "🌙";
 };
 
-// ================= NAVIGATION =================
+(async () => {
+  const token = localStorage.getItem("token");
+  if (!token) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/profile`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) return;
+
+    const data = await res.json();
+    profileUsername.textContent = data.username;
+    loginOverlay.classList.add("hidden");
+  } catch {}
+})();
+
+logoutBtn.onclick = () => {
+  localStorage.removeItem("token");
+  location.reload();
+};
+
 navLinks.forEach(link => {
-  link.addEventListener("click", e => {
-    e.preventDefault();
+  link.onclick = () => {
     navLinks.forEach(l => l.classList.remove("active"));
     link.classList.add("active");
-    showPage(link.dataset.page);
-    if (link.dataset.page === "profile") loadProfile();
-  });
+
+    homePage.classList.add("hidden");
+    historyPage.classList.add("hidden");
+    profilePage.classList.add("hidden");
+
+    if (link.dataset.page === "home") homePage.classList.remove("hidden");
+    if (link.dataset.page === "history") loadHistory();
+    if (link.dataset.page === "profile") profilePage.classList.remove("hidden");
+  };
 });
 
-function showPage(page) {
-  Object.values(pages).forEach(p => p.classList.add("hidden"));
-  pages[page].classList.remove("hidden");
-}
-
-// ================= IMAGE UPLOAD =================
 selectBtn.onclick = () => fileInput.click();
 uploadBtn.onclick = () => fileInput.click();
 
-fileInput.onchange = () => {
-  const file = fileInput.files[0];
-  if (!file) return;
-  previewImg.src = URL.createObjectURL(file);
-  preview.classList.remove("hidden");
+fileInput.onchange = () => showPreview(fileInput.files[0]);
+
+dropArea.ondragover = e => e.preventDefault();
+dropArea.ondrop = e => {
+  e.preventDefault();
+  showPreview(e.dataTransfer.files[0]);
 };
+
+function showPreview(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    previewImg.src = reader.result;
+    preview.classList.remove("hidden");
+    dropArea.classList.add("hidden");
+  };
+  reader.readAsDataURL(file);
+}
 
 removeBtn.onclick = () => {
-  fileInput.value = "";
   preview.classList.add("hidden");
-  details.classList.add("hidden");
+  dropArea.classList.remove("hidden");
+  fileInput.value = "";
 };
 
-// ================= SCAN (REAL OCR API) =================
-scanBtn.addEventListener("click", async () => {
-  if (!fileInput.files.length) {
-    alert("Select an image first");
-    return;
-  }
+scanBtn.onclick = async () => {
+  const file = fileInput.files[0];
+  if (!file) return alert("Select an image");
+
+  preview.classList.add("hidden");
+  details.classList.add("hidden");
+  processing.classList.remove("hidden");
 
   const formData = new FormData();
-  formData.append("image", fileInput.files[0]);
-
-  processing.classList.remove("hidden");
-  details.classList.add("hidden");
+  formData.append("image", file);
 
   try {
-    const res = await fetch(`${API}/scan`, {
+    const res = await fetch(`${API_BASE}/scan`, {
       method: "POST",
-      credentials: "include",
+      headers: getAuthHeaders(),
       body: formData
     });
 
     const data = await res.json();
-    processing.classList.add("hidden");
-
     if (!res.ok) {
       alert(data.error || "Scan failed");
+      preview.classList.remove("hidden");
       return;
     }
 
-    if (!data.vehicle_details) {
-      alert(data.message || "No plate detected");
-      return;
-    }
-
-    lastVehicleData = data.vehicle_details;
-
-    Object.keys(fields).forEach(k => {
-      fields[k].textContent = data.vehicle_details[k] || "-";
-    });
-
-    details.classList.remove("hidden");
-    addHistory(data.plate_number);
-
-  } catch (err) {
-    processing.classList.add("hidden");
-    alert("❌ Server error");
-  }
-});
-
-// ================= HISTORY =================
-function addHistory(plate) {
-  const div = document.createElement("div");
-  div.className = "card";
-  div.innerHTML = `<b>${plate}</b><br><small>${new Date().toLocaleString()}</small>`;
-  historyList.prepend(div);
-}
-
-// ================= PROFILE =================
-async function loadProfile() {
-  try {
-    const res = await fetch(`${API}/profile`, {
-      credentials: "include"
-    });
-    const data = await res.json();
-    profileUsername.textContent = data.username;
+    showResults(data);
   } catch {
-    alert("Failed to load profile");
+    alert("Server error");
+    preview.classList.remove("hidden");
+  } finally {
+    processing.classList.add("hidden");
+  }
+};
+
+function showResults(data) {
+  regNumber.textContent = data.registration_number;
+  owner.textContent = data.owner;
+  model.textContent = data.model;
+  fuel.textContent = data.fuel;
+  regDate.textContent = data.registration_date;
+  vehicleClass.textContent = data.vehicle_class;
+  color.textContent = data.color;
+  details.classList.remove("hidden");
+}
+
+scanAnother.onclick = () => {
+  details.classList.add("hidden");
+  dropArea.classList.remove("hidden");
+  fileInput.value = "";
+};
+
+async function loadHistory() {
+  historyPage.classList.remove("hidden");
+
+  try {
+    const res = await fetch(`${API_BASE}/history`, {
+      headers: getAuthHeaders()
+    });
+
+    const history = await res.json();
+    historyList.innerHTML = "";
+
+    if (!Array.isArray(history) || history.length === 0) {
+      historyList.innerHTML = "<p class='muted'>No scans yet</p>";
+      return;
+    }
+
+    history.forEach(h => {
+      const div = document.createElement("div");
+      div.className = "card";
+      div.innerHTML = `<b>${h.registration_number}</b><br><small class="muted">${h.time}</small>`;
+      historyList.appendChild(div);
+    });
+  } catch {
+    historyList.innerHTML = "<p class='muted'>Unable to load history</p>";
   }
 }
 
-// ================= DOWNLOAD PDF =================
-downloadBtn.addEventListener("click", async () => {
-  if (!lastVehicleData) return;
+downloadBtn.onclick = async () => {
+  const payload = {
+    "Registration Number": regNumber.textContent,
+    "Owner": owner.textContent,
+    "Model": model.textContent,
+    "Fuel": fuel.textContent,
+    "Registration Date": regDate.textContent,
+    "Vehicle Class": vehicleClass.textContent,
+    "Color": color.textContent
+  };
 
-  const res = await fetch(`${API}/download-report`, {
+  const res = await fetch(`${API_BASE}/download-report`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ vehicle_details: lastVehicleData })
+    headers: {
+      ...getAuthHeaders(),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
   });
 
   const blob = await res.blob();
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "vehicle_report.pdf";
-  a.click();
-});
-
-// ================= SCAN AGAIN =================
-scanAnother.onclick = () => {
-  details.classList.add("hidden");
-  preview.classList.add("hidden");
-  fileInput.value = "";
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "vehicle_report.pdf";
+  link.click();
 };

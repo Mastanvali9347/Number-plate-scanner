@@ -3,7 +3,10 @@ from mysql.connector import Error
 import requests
 import re
 
-# ================= DATABASE =================
+RTO_API_KEY = "861037d31amsh7470a636ab42985p13688djsnc6489f80bd5a"
+RTO_API_HOST = "vehicle-rc-information.p.rapidapi.com"
+
+
 def get_connection():
     try:
         return mysql.connector.connect(
@@ -11,7 +14,8 @@ def get_connection():
             user="root",
             password="Mastan@12345",
             database="vehicles_db",
-            port=3306
+            port=3306,
+            autocommit=True
         )
     except Error as e:
         print("MySQL Error:", e)
@@ -25,7 +29,6 @@ def init_db():
 
     cur = con.cursor()
 
-    # USERS TABLE
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -34,7 +37,6 @@ def init_db():
         )
     """)
 
-    # VEHICLES CACHE TABLE
     cur.execute("""
         CREATE TABLE IF NOT EXISTS vehicles (
             reg_number VARCHAR(20) PRIMARY KEY,
@@ -47,52 +49,39 @@ def init_db():
         )
     """)
 
-    # SCAN HISTORY TABLE
     cur.execute("""
         CREATE TABLE IF NOT EXISTS scan_history (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            username VARCHAR(50) NOT NULL,
+            user_id INT NOT NULL,
             plate VARCHAR(20) NOT NULL,
             scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            INDEX (username),
-            INDEX (plate)
+            INDEX (user_id),
+            INDEX (plate),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     """)
 
-    con.commit()
     cur.close()
     con.close()
-
-
-# ================= RTO API =================
-RTO_API_KEY = "861037d31amsh7470a636ab42985p13688djsnc6489f80bd5a"
-RTO_API_HOST = "vehicle-rc-information.p.rapidapi.com"
 
 
 def fetch_from_rto_api(reg_number):
     url = "https://vehicle-rc-information.p.rapidapi.com/vehicle-rc-details"
 
-    payload = {"vehicleNumber": reg_number}
     headers = {
         "x-rapidapi-key": RTO_API_KEY,
         "x-rapidapi-host": RTO_API_HOST,
         "Content-Type": "application/json"
     }
 
-    try:
-        response = requests.post(
-            url,
-            json=payload,
-            headers=headers,
-            timeout=10
-        )
+    payload = {"vehicleNumber": reg_number}
 
-        if response.status_code != 200:
+    try:
+        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        if res.status_code != 200:
             return None
 
-        data = response.json()
-        result = data.get("result")
-
+        result = res.json().get("result")
         if not result:
             return None
 
@@ -107,12 +96,11 @@ def fetch_from_rto_api(reg_number):
         }
 
     except Exception as e:
-        print("RTO API ERROR:", e)
+        print("RTO API Error:", e)
         return None
 
 
-# ================= CACHE =================
-def save_vehicle_to_db(vehicle):
+def save_vehicle(vehicle):
     con = get_connection()
     if not con:
         return
@@ -121,7 +109,7 @@ def save_vehicle_to_db(vehicle):
     cur.execute("""
         INSERT IGNORE INTO vehicles
         (reg_number, owner, model, fuel, reg_date, vehicle_class, color)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)
     """, (
         vehicle["Registration Number"],
         vehicle["Owner Name"],
@@ -131,30 +119,25 @@ def save_vehicle_to_db(vehicle):
         vehicle["Vehicle Class"],
         vehicle["Color"]
     ))
-
-    con.commit()
     cur.close()
     con.close()
 
 
-# ================= HISTORY =================
-def save_scan_history(username, plate):
+def save_scan(user_id, plate):
     con = get_connection()
     if not con:
         return
 
     cur = con.cursor()
-    cur.execute("""
-        INSERT INTO scan_history (username, plate)
-        VALUES (%s, %s)
-    """, (username, plate))
-
-    con.commit()
+    cur.execute(
+        "INSERT INTO scan_history (user_id, plate) VALUES (%s,%s)",
+        (user_id, plate)
+    )
     cur.close()
     con.close()
 
 
-def get_scan_history(username):
+def get_scan_history(user_id):
     con = get_connection()
     if not con:
         return []
@@ -163,57 +146,51 @@ def get_scan_history(username):
     cur.execute("""
         SELECT plate, scanned_at
         FROM scan_history
-        WHERE username=%s
+        WHERE user_id=%s
         ORDER BY scanned_at DESC
-    """, (username,))
-
+    """, (user_id,))
     rows = cur.fetchall()
     cur.close()
     con.close()
     return rows
 
 
-# ================= MAIN VEHICLE LOOKUP =================
-def get_vehicle_details(plate, username=None):
+def get_vehicle_details(plate, user_id):
     normalized = re.sub(r"[^A-Z0-9]", "", plate.upper())
 
-    # 1️⃣ CHECK CACHE
     con = get_connection()
-    if con:
-        cur = con.cursor(dictionary=True)
-        cur.execute("""
-            SELECT
-                reg_number AS `Registration Number`,
-                owner AS `Owner Name`,
-                model AS `Vehicle Model`,
-                fuel AS `Fuel Type`,
-                reg_date AS `Registration Date`,
-                vehicle_class AS `Vehicle Class`,
-                color AS `Color`
-            FROM vehicles
-            WHERE UPPER(REPLACE(reg_number,' ',''))=%s
-        """, (normalized,))
-        row = cur.fetchone()
-        cur.close()
-        con.close()
-
-        if row:
-            if username:
-                save_scan_history(username, normalized)
-            return row
-
-    # 2️⃣ FETCH FROM RTO
-    vehicle = fetch_from_rto_api(normalized)
-    if not vehicle:
+    if not con:
         return None
 
-    # 3️⃣ SAVE CACHE + HISTORY
-    save_vehicle_to_db(vehicle)
-    if username:
-        save_scan_history(username, normalized)
+    cur = con.cursor(dictionary=True)
+    cur.execute("""
+        SELECT
+            reg_number AS 'Registration Number',
+            owner AS 'Owner Name',
+            model AS 'Vehicle Model',
+            fuel AS 'Fuel Type',
+            reg_date AS 'Registration Date',
+            vehicle_class AS 'Vehicle Class',
+            color AS 'Color'
+        FROM vehicles
+        WHERE UPPER(REPLACE(reg_number,' ',''))=%s
+    """, (normalized,))
 
-    return vehicle
+    row = cur.fetchone()
+    cur.close()
+    con.close()
+
+    if row:
+        save_scan(user_id, normalized)
+        return row
+
+    vehicle = fetch_from_rto_api(normalized)
+    if vehicle:
+        save_vehicle(vehicle)
+        save_scan(user_id, normalized)
+        return vehicle
+
+    return None
 
 
-# ================= INIT =================
 init_db()
