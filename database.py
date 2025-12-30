@@ -5,6 +5,7 @@ import re
 
 RTO_API_KEY = "861037d31amsh7470a636ab42985p13688djsnc6489f80bd5a"
 RTO_API_HOST = "vehicle-rc-information.p.rapidapi.com"
+RTO_URL = "https://vehicle-rc-information.p.rapidapi.com/vehicle-rc-details"
 
 
 def get_connection():
@@ -14,14 +15,51 @@ def get_connection():
             user="root",
             password="Mastan@12345",
             database="vehicles_db",
-            port=3306,
-            autocommit=True
+            port=3306
         )
     except Error as e:
         print("MySQL Error:", e)
         return None
 
 
+# ================= AUTO MIGRATION =================
+def migrate_vehicles_table():
+    con = get_connection()
+    if not con:
+        return
+
+    cur = con.cursor()
+    cur.execute("SHOW COLUMNS FROM vehicles")
+    columns = [c[0] for c in cur.fetchall()]
+
+    migrations = {
+        "owner": "ALTER TABLE vehicles CHANGE owner owner_name VARCHAR(100)",
+        "model": "ALTER TABLE vehicles CHANGE model vehicle_model VARCHAR(100)",
+        "fuel": "ALTER TABLE vehicles CHANGE fuel fuel_type VARCHAR(20)",
+        "reg_date": "ALTER TABLE vehicles CHANGE reg_date registration_date VARCHAR(50)"
+    }
+
+    for old_col, sql in migrations.items():
+        if old_col in columns:
+            try:
+                cur.execute(sql)
+            except:
+                pass
+
+    if "created_at" not in columns:
+        try:
+            cur.execute(
+                "ALTER TABLE vehicles ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+            )
+        except:
+            pass
+
+    con.commit()
+    cur.close()
+    con.close()
+
+
+# ================= INIT DB =================
 def init_db():
     con = get_connection()
     if not con:
@@ -40,10 +78,10 @@ def init_db():
     cur.execute("""
         CREATE TABLE IF NOT EXISTS vehicles (
             reg_number VARCHAR(20) PRIMARY KEY,
-            owner VARCHAR(100),
-            model VARCHAR(100),
-            fuel VARCHAR(20),
-            reg_date VARCHAR(50),
+            owner_name VARCHAR(100),
+            vehicle_model VARCHAR(100),
+            fuel_type VARCHAR(20),
+            registration_date VARCHAR(50),
             vehicle_class VARCHAR(50),
             color VARCHAR(50)
         )
@@ -56,28 +94,28 @@ def init_db():
             plate VARCHAR(20) NOT NULL,
             scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             INDEX (user_id),
-            INDEX (plate),
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     """)
 
+    con.commit()
     cur.close()
     con.close()
 
+    migrate_vehicles_table()
 
+
+# ================= RTO API =================
 def fetch_from_rto_api(reg_number):
-    url = "https://vehicle-rc-information.p.rapidapi.com/vehicle-rc-details"
-
+    payload = {"vehicleNumber": reg_number}
     headers = {
         "x-rapidapi-key": RTO_API_KEY,
         "x-rapidapi-host": RTO_API_HOST,
         "Content-Type": "application/json"
     }
 
-    payload = {"vehicleNumber": reg_number}
-
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        res = requests.post(RTO_URL, json=payload, headers=headers, timeout=10)
         if res.status_code != 200:
             return None
 
@@ -100,6 +138,7 @@ def fetch_from_rto_api(reg_number):
         return None
 
 
+# ================= SAVE VEHICLE =================
 def save_vehicle(vehicle):
     con = get_connection()
     if not con:
@@ -107,9 +146,16 @@ def save_vehicle(vehicle):
 
     cur = con.cursor()
     cur.execute("""
-        INSERT IGNORE INTO vehicles
-        (reg_number, owner, model, fuel, reg_date, vehicle_class, color)
+        INSERT INTO vehicles
+        (reg_number, owner_name, vehicle_model, fuel_type, registration_date, vehicle_class, color)
         VALUES (%s,%s,%s,%s,%s,%s,%s)
+        ON DUPLICATE KEY UPDATE
+            owner_name=VALUES(owner_name),
+            vehicle_model=VALUES(vehicle_model),
+            fuel_type=VALUES(fuel_type),
+            registration_date=VALUES(registration_date),
+            vehicle_class=VALUES(vehicle_class),
+            color=VALUES(color)
     """, (
         vehicle["Registration Number"],
         vehicle["Owner Name"],
@@ -119,10 +165,13 @@ def save_vehicle(vehicle):
         vehicle["Vehicle Class"],
         vehicle["Color"]
     ))
+
+    con.commit()
     cur.close()
     con.close()
 
 
+# ================= SCAN HISTORY =================
 def save_scan(user_id, plate):
     con = get_connection()
     if not con:
@@ -133,6 +182,7 @@ def save_scan(user_id, plate):
         "INSERT INTO scan_history (user_id, plate) VALUES (%s,%s)",
         (user_id, plate)
     )
+    con.commit()
     cur.close()
     con.close()
 
@@ -155,7 +205,8 @@ def get_scan_history(user_id):
     return rows
 
 
-def get_vehicle_details(plate, user_id):
+# ================= VEHICLE LOOKUP =================
+def get_vehicle_details(plate, user_id=None):
     normalized = re.sub(r"[^A-Z0-9]", "", plate.upper())
 
     con = get_connection()
@@ -165,32 +216,34 @@ def get_vehicle_details(plate, user_id):
     cur = con.cursor(dictionary=True)
     cur.execute("""
         SELECT
-            reg_number AS 'Registration Number',
-            owner AS 'Owner Name',
-            model AS 'Vehicle Model',
-            fuel AS 'Fuel Type',
-            reg_date AS 'Registration Date',
-            vehicle_class AS 'Vehicle Class',
-            color AS 'Color'
+            reg_number AS `Registration Number`,
+            owner_name AS `Owner Name`,
+            vehicle_model AS `Vehicle Model`,
+            fuel_type AS `Fuel Type`,
+            registration_date AS `Registration Date`,
+            vehicle_class AS `Vehicle Class`,
+            color AS `Color`
         FROM vehicles
         WHERE UPPER(REPLACE(reg_number,' ',''))=%s
     """, (normalized,))
-
     row = cur.fetchone()
     cur.close()
     con.close()
 
     if row:
-        save_scan(user_id, normalized)
+        if user_id:
+            save_scan(user_id, normalized)
         return row
 
     vehicle = fetch_from_rto_api(normalized)
-    if vehicle:
-        save_vehicle(vehicle)
-        save_scan(user_id, normalized)
-        return vehicle
+    if not vehicle:
+        return None
 
-    return None
+    save_vehicle(vehicle)
+    if user_id:
+        save_scan(user_id, normalized)
+
+    return vehicle
 
 
 init_db()
