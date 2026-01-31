@@ -23,8 +23,6 @@ from database import (
 )
 
 warnings.filterwarnings("ignore")
-
-# ================= APP =================
 app = Flask(__name__)
 
 CORS(app)
@@ -54,10 +52,12 @@ def jwt_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         auth = request.headers.get("Authorization")
+
         if not auth or not auth.startswith("Bearer "):
             return jsonify({"error": "Unauthorized"}), 401
 
         token = auth.split(" ")[1]
+
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
             request.user_id = payload["user_id"]
@@ -154,28 +154,32 @@ def register():
 
 @app.route("/login", methods=["POST"])
 def login():
-    data = request.get_json()
+    data = request.json
     username = data.get("username")
     password = data.get("password")
 
     con = get_connection()
     cur = con.cursor(dictionary=True)
+
     cur.execute("SELECT * FROM users WHERE username=%s", (username,))
     user = cur.fetchone()
+
     cur.close()
     con.close()
 
     if not user or not check_password_hash(user["password"], password):
         return jsonify({"error": "Invalid credentials"}), 401
 
-    token = create_token(user["id"], user["username"])
-    return jsonify({
-        "token": token,
-        "username": user["username"]
-    })
+    token = jwt.encode({
+        "user_id": user["id"],
+        "username": user["username"],
+        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+    }, JWT_SECRET, algorithm=JWT_ALGO)
+
+    return jsonify({"token": token})
 
 # ================= PROFILE =================
-@app.route("/profile")
+@app.route("/profile", methods=["GET"])
 @jwt_required
 def profile():
     con = get_connection()
@@ -225,27 +229,29 @@ def scan():
     text = easy_ocr_extract(path)
     plate = extract_plate(text)
 
-    print("OCR TEXT:", text)
-    print("PLATE:", plate)
-
     if not plate:
         return jsonify({
-            "error": "No valid number plate detected",
+            "success": False,
+            "message": "OCR completed but no valid number plate detected",
             "ocr_text": text
-        }), 400
+        }), 200
 
     details = get_vehicle_details(plate, request.user_id)
-    if not details:
-        return jsonify({"error": "Vehicle not found"}), 404
 
     return jsonify({
-        "registration_number": details["Registration Number"],
-        "owner": details["Owner Name"],
-        "model": details["Vehicle Model"],
-        "fuel": details["Fuel Type"],
-        "registration_date": details["Registration Date"],
-        "vehicle_class": details["Vehicle Class"],
-        "color": details["Color"]
+        "success": True,
+        "plate": plate,
+        "ocr_text": text,
+        "source": details.get("source"),
+        "vehicle": {
+            "registration_number": details.get("Registration Number"),
+            "owner": details.get("Owner Name"),
+            "model": details.get("Vehicle Model"),
+            "fuel": details.get("Fuel Type"),
+            "registration_date": details.get("Registration Date"),
+            "vehicle_class": details.get("Vehicle Class"),
+            "color": details.get("Color")
+        }
     })
 
 # ================= HISTORY =================

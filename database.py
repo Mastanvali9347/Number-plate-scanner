@@ -209,41 +209,52 @@ def get_scan_history(user_id):
 def get_vehicle_details(plate, user_id=None):
     normalized = re.sub(r"[^A-Z0-9]", "", plate.upper())
 
-    con = get_connection()
-    if not con:
-        return None
-
-    cur = con.cursor(dictionary=True)
-    cur.execute("""
-        SELECT
-            reg_number AS `Registration Number`,
-            owner_name AS `Owner Name`,
-            vehicle_model AS `Vehicle Model`,
-            fuel_type AS `Fuel Type`,
-            registration_date AS `Registration Date`,
-            vehicle_class AS `Vehicle Class`,
-            color AS `Color`
-        FROM vehicles
-        WHERE UPPER(REPLACE(reg_number,' ',''))=%s
-    """, (normalized,))
-    row = cur.fetchone()
-    cur.close()
-    con.close()
-
-    if row:
-        if user_id:
-            save_scan(user_id, normalized)
-        return row
-
-    vehicle = fetch_from_rto_api(normalized)
-    if not vehicle:
-        return None
-
-    save_vehicle(vehicle)
+    # 1️⃣ SAVE SCAN HISTORY FIRST (OCR SUCCESS)
     if user_id:
         save_scan(user_id, normalized)
 
-    return vehicle
+    # 2️⃣ CHECK LOCAL DB CACHE
+    con = get_connection()
+    if con:
+        cur = con.cursor(dictionary=True)
+        cur.execute("""
+            SELECT
+                reg_number AS `Registration Number`,
+                owner_name AS `Owner Name`,
+                vehicle_model AS `Vehicle Model`,
+                fuel_type AS `Fuel Type`,
+                registration_date AS `Registration Date`,
+                vehicle_class AS `Vehicle Class`,
+                color AS `Color`
+            FROM vehicles
+            WHERE UPPER(REPLACE(reg_number,' ',''))=%s
+        """, (normalized,))
+        row = cur.fetchone()
+        cur.close()
+        con.close()
 
+        if row:
+            row["source"] = "database"
+            return row
+
+    # 3️⃣ TRY RTO API (BEST EFFORT)
+    vehicle = fetch_from_rto_api(normalized)
+
+    if vehicle:
+        save_vehicle(vehicle)
+        vehicle["source"] = "rto_api"
+        return vehicle
+
+    # 4️⃣ FALLBACK (OCR-ONLY RESULT)
+    return {
+        "Registration Number": normalized,
+        "Owner Name": None,
+        "Vehicle Model": None,
+        "Fuel Type": None,
+        "Registration Date": None,
+        "Vehicle Class": None,
+        "Color": None,
+        "source": "ocr_only"
+    }
 
 init_db()
