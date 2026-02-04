@@ -33,18 +33,31 @@ Deployment	Render (Docker)
 Regex	Custom Indian plate matcher
 📁 Project Structure
 NUMBER-PLATE-SCANNER/
+
 │── app.py
+
 │── database.py
+
 │── requirements.txt
+
 │── render.yaml
+
 │── static/
+
 │    ├── style.css
+
 │    ├── script.js
+
 │── templates/
+
 │    └── index.html
+
 │── uploads/              (auto-created)
+
 │── docker/
+
 │    └── Dockerfile
+
 
 ⚙️ Installation (Local Machine)
 1️⃣ Clone the repo
@@ -53,7 +66,9 @@ cd number-plate-scanner
 
 2️⃣ Create a virtual environment
 python -m venv venv
+
 source venv/bin/activate   # Mac/Linux
+
 venv\Scripts\activate      # Windows
 
 3️⃣ Install dependencies
